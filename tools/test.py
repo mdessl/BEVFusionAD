@@ -147,8 +147,8 @@ def main():
     if args.launcher == 'none':
         distributed = False
     else:
-        distributed = True
-        init_dist(args.launcher, **cfg.dist_params)
+        distributed = False
+        #init_dist(args.launcher, **cfg.dist_params)
 
     # set random seeds
     if args.seed is not None:

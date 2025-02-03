@@ -4,12 +4,26 @@ import pyquaternion
 import tempfile
 from nuscenes.utils.data_classes import Box as NuScenesBox
 from os import path as osp
+import pickle
 
 from mmdet.datasets import DATASETS
 from ..core import show_result
 from ..core.bbox import Box3DMode, Coord3DMode, LiDARInstance3DBoxes
 from .custom_3d import Custom3DDataset
 
+
+def normalize_path(path):
+    """Remove /root/bevfusion prefix from paths if present.
+    
+    Args:
+        path (str): Original file path
+        
+    Returns:
+        str: Normalized path starting with 'data/'
+    """
+    if isinstance(path, str) and path.startswith('/root/bevfusion/data/'):
+        return path[len('/root/bevfusion/'):]
+    return path
 
 @DATASETS.register_module()
 class NuScenesDataset(Custom3DDataset):
@@ -249,17 +263,17 @@ class NuScenesDataset(Custom3DDataset):
                 - ann_info (dict): Annotation info.
         """
         info = self.data_infos[index]
-        # standard protocal modified from SECOND.Pytorch
+        
+        pts_filename = normalize_path(info['lidar_path'])
         input_dict = dict(
             sample_idx=info['token'],
-            pts_filename=info['lidar_path'],
+            pts_filename=pts_filename,
             sweeps=info['sweeps'],
             timestamp=info['timestamp'] / 1e6,
         )
 
         if self.noise_sensor_type == 'lidar':
             if self.drop_frames:
-                pts_filename = input_dict['pts_filename']
                 file_name = pts_filename.split('/')[-1]
 
                 if self.noise_data[file_name]['noise']['drop_frames'][self.drop_ratio][self.drop_type]['stuck']:
@@ -276,11 +290,9 @@ class NuScenesDataset(Custom3DDataset):
             image_paths = []
             lidar2img_rts = []
             caminfos = []
-            # for cam_type, cam_info in info['cams'].items():
             for cam_type in cam_orders:
                 cam_info = info['cams'][cam_type]
-
-                cam_data_path = cam_info['data_path']
+                cam_data_path = normalize_path(cam_info['data_path'])
                 file_name = cam_data_path.split('/')[-1]
                 if self.noise_sensor_type == 'camera':
                     if self.drop_frames:

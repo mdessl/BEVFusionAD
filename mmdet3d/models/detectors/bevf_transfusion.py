@@ -200,6 +200,12 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
 
     def simple_test(self, points, img_metas, img=None, rescale=False):
         """Test function without augmentaiton."""
+        points = [torch.zeros_like(p) for p in points]
+        print("careful, lidar is zero!!")
+        print("careful, lidar is zero!!")
+        print("careful, lidar is zero!!")
+        print("careful, lidar is zero!!")
+        print("careful, lidar is zero!!")
         feature_dict = self.extract_feat(
             points, img=img, img_metas=img_metas)
         img_feats = feature_dict['img_feats']

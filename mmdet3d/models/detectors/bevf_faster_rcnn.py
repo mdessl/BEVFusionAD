@@ -113,8 +113,8 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
                 trans_list = []
                 for mat in img_metas[sample_idx]['lidar2img']:
                     mat = torch.Tensor(mat).to(img_feats_view.device)
-                    rot_list.append(mat.inverse()[:3, :3])
-                    trans_list.append(mat.inverse()[:3, 3].view(-1))
+                    rot_list.append(mat.to("cpu").inverse()[:3, :3].to("cuda"))
+                    trans_list.append(mat.to("cpu").inverse()[:3, 3].view(-1).to("cuda"))
                 rot_list = torch.stack(rot_list, dim=0)
                 trans_list = torch.stack(trans_list, dim=0)
                 rots.append(rot_list)

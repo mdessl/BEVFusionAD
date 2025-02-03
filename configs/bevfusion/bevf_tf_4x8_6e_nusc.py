@@ -170,8 +170,9 @@ log_config = dict(
            dict(type='TensorboardLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = 'work_dirs/transfusion_nusc_voxel_L/epoch_20.pth'
-load_lift_from = 'work_dirs/bevf_tf_4x8_20e_nusc_cam.py/epoch_20.pth'
+load_from = '/BEVFusion/data/transfusion_train/bevfusion_tf.pth'
+load_lift_from = '/BEVFusion/data/transfusion_train/cam_tf.pth'
+
 
 resume_from = None
 workflow = [('train', 1)]
@@ -181,5 +182,5 @@ find_unused_parameters = True
 no_freeze_head = True
 
 data = dict(
-    samples_per_gpu=4,
+    samples_per_gpu=1,
     workers_per_gpu=6,)
