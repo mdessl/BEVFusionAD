@@ -135,6 +135,7 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
         Returns:
             dict: Losses of different branches.
         """
+        #points = [torch.zeros_like(p) for p in points]
         feature_dict = self.extract_feat(
             points, img=img, img_metas=img_metas)
         img_feats = feature_dict['img_feats']
@@ -200,17 +201,13 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
 
     def simple_test(self, points, img_metas, img=None, rescale=False):
         """Test function without augmentaiton."""
-        points = [torch.zeros_like(p) for p in points]
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
+        #points = [torch.zeros_like(p) for p in points]
+        #print("careful, lidar is zero!!")
+
         feature_dict = self.extract_feat(
             points, img=img, img_metas=img_metas)
         img_feats = feature_dict['img_feats']
         pts_feats = feature_dict['pts_feats']
-
         bbox_list = [dict() for i in range(len(img_metas))]
         if pts_feats and self.with_pts_bbox:
             bbox_pts = self.simple_test_pts(
@@ -223,3 +220,89 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
             for result_dict, img_bbox in zip(bbox_list, bbox_img):
                 result_dict['img_bbox'] = img_bbox
         return bbox_list
+
+
+
+@DETECTORS.register_module()
+class BEVF_FasterRCNN_SB(BEVF_TransFusion):
+    """Multi-modality BEVFusion using Faster R-CNN."""
+
+    def __init__(self, **kwargs):
+        super(BEVF_TransFusion, self).__init__(**kwargs)
+    
+    def extract_feat(self, points, img, img_metas, modality, gt_bboxes_3d=None):
+        """Extract features from images and points."""
+        if modality == "sbnet_lidar":
+            pts_feats = self.extract_pts_feat(points, None, None) # img and img_metas are not used in that func
+            return self.seblock(pts_feats[0])
+
+        elif modality == "sbnet_camera":
+            img_feats = self.extract_img_feat(img, img_metas)
+            BN, C, H, W = img_feats[0].shape
+            batch_size = BN//self.num_views
+            img_feats_view = img_feats[0].view(batch_size, self.num_views, C, H, W)
+            rots = []
+            trans = []
+            for sample_idx in range(batch_size):
+                rot_list = []
+                trans_list = []
+                for mat in img_metas[sample_idx]['lidar2img']:
+                    mat = torch.Tensor(mat).to(img_feats_view.device)
+                    rot_list.append(mat.to("cpu").inverse()[:3, :3].to("cuda"))
+                    trans_list.append(mat.to("cpu").inverse()[:3, 3].view(-1).to("cuda"))
+                rot_list = torch.stack(rot_list, dim=0)
+                trans_list = torch.stack(trans_list, dim=0)
+                rots.append(rot_list)
+                trans.append(trans_list)
+            rots = torch.stack(rots)
+            trans = torch.stack(trans)
+            lidar2img_rt = img_metas[sample_idx]['lidar2img']  #### extrinsic parameters for multi-view images
+            img_bev_feat, depth_dist = self.lift_splat_shot_vis(img_feats_view, rots, trans, lidar2img_rt=lidar2img_rt, img_metas=img_metas)
+            return self.seblock(img_bev_feat[0])
+        else:
+            raise ValueError("No SBNet modality found in img_metas")
+
+    def forward_train(self,
+                      points=None,
+                      img_metas=None,
+                      gt_bboxes_3d=None,
+                      gt_labels_3d=None,
+                      gt_labels=None,
+                      gt_bboxes=None,
+                      img=None,
+                      img_depth=None,
+                      proposals=None,
+                      gt_bboxes_ignore=None):
+        
+        modality = img_metas[0]['sbnet_modality']
+        if modality == "both":
+            feature_dict = self.extract_feat(points, img=img, img_metas=img_metas, modality="camera")
+            feature_dict = self.extract_feat(points, img=img, img_metas=img_metas, modality="lidar")
+            raise ValueError("fusion mechansim in training to be implemented")
+        elif modality == "lidar" or modality == "camera":
+            feature_dict = self.extract_feat(points, img=img, img_metas=img_metas, modality=modality)
+        else:
+            raise ValueError("No SBNet modality found in img_metas")
+        
+        img_feats = feature_dict['img_feats']
+        pts_feats = feature_dict['pts_feats'] 
+        depth_dist = feature_dict['depth_dist']
+        losses = dict()
+        if pts_feats:
+            losses_pts = self.forward_pts_train(pts_feats, img_feats, gt_bboxes_3d,
+                                                gt_labels_3d, img_metas,
+                                                gt_bboxes_ignore)
+            losses.update(losses_pts)
+        if img_feats:
+            losses_img = self.forward_img_train(
+                img_feats,
+                img_metas=img_metas,
+                gt_bboxes=gt_bboxes,
+                gt_labels=gt_labels,
+                gt_bboxes_ignore=gt_bboxes_ignore,
+                proposals=proposals)
+            if img_depth is not None:
+                loss_depth = self.depth_dist_loss(depth_dist, img_depth, loss_method=self.img_depth_loss_method, img=img) * self.img_depth_loss_weight
+                losses.update(img_depth_loss=loss_depth)
+            losses.update(losses_img)
+        return losses

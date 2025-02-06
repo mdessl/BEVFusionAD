@@ -170,8 +170,8 @@ log_config = dict(
            dict(type='TensorboardLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = '/BEVFusion/data/transfusion_train/bevfusion_tf.pth'
-load_lift_from = '/BEVFusion/data/transfusion_train/cam_tf.pth'
+load_from = '/BEVFusionAD/data/transfusion_train/bevfusion_tf.pth'
+load_lift_from = '/BEVFusionAD/data/transfusion_train/cam_tf.pth'
 
 
 resume_from = None

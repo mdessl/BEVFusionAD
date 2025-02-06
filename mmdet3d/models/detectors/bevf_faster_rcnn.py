@@ -101,7 +101,12 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
         """Extract features from images and points."""
         img_feats = self.extract_img_feat(img, img_metas)
         pts_feats = self.extract_pts_feat(points, img_feats, img_metas)
-
+        
+        # Fix: Modify the tensors in-place
+        #for i in range(len(pts_feats)):
+        #    mask = torch.zeros_like(pts_feats[i])
+        #    pts_feats[i].mul_(mask)  # In-place multiplication
+        
         if self.lift:
             BN, C, H, W = img_feats[0].shape
             batch_size = BN//self.num_views
@@ -203,6 +208,7 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
     def depth_dist_loss(self, predict_depth_dist, gt_depth, loss_method='kld', img=None):
         # predict_depth_dist: B, N, D, H, W
         # gt_depth: B, N, H', W'
+        print("UNEXPECTED: depth loss is done !!!")
         B, N, D, H, W = predict_depth_dist.shape
         guassian_depth, min_depth = gt_depth[..., 1:], gt_depth[..., 0]
         mask = (min_depth>=self.camera_depth_range[0]) & (min_depth<=self.camera_depth_range[1])
