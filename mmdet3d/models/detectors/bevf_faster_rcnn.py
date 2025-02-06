@@ -134,6 +134,7 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
                 pts_feats = [img_bev_feat] ####cam stream only
             else:
                 if self.lc_fusion:
+                    import pdb; pdb.set_trace()
                     if img_bev_feat.shape[2:] != pts_feats[0].shape[2:]:
                         img_bev_feat = F.interpolate(img_bev_feat, pts_feats[0].shape[2:], mode='bilinear', align_corners=True)
                     pts_feats = [self.reduc_conv(torch.cat([img_bev_feat, pts_feats[0]], dim=1))]
@@ -222,48 +223,3 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
         else:
             raise NotImplementedError
         return loss
-
-
-@DETECTORS.register_module()
-class BEVF_FasterRCNN_SB(BEVF_FasterRCNN):
-    """Multi-modality BEVFusion using Faster R-CNN."""
-
-    def __init__(self, lss=False, lc_fusion=False, camera_stream=False,
-                camera_depth_range=[4.0, 45.0, 1.0], img_depth_loss_weight=1.0,  img_depth_loss_method='kld',
-                grid=0.6, num_views=6, se=False,
-                final_dim=(900, 1600), pc_range=[-50, -50, -5, 50, 50, 3], downsample=4, imc=256, lic=384, **kwargs):
-
-        super(BEVF_FasterRCNN_SB, self).__init__(**kwargs)
-
-    
-    def extract_feat(self, points, img, img_metas, modality, gt_bboxes_3d=None):
-        """Extract features from images and points."""
-        if modality == "sbnet_lidar":
-            pts_feats = self.extract_pts_feat(points, img_feats, img_metas)
-            return self.seblock(pts_feats[0])
-
-        elif modality == "sbnet_camera":
-            img_feats = self.extract_img_feat(img, img_metas)
-            BN, C, H, W = img_feats[0].shape
-            batch_size = BN//self.num_views
-            img_feats_view = img_feats[0].view(batch_size, self.num_views, C, H, W)
-            rots = []
-            trans = []
-            for sample_idx in range(batch_size):
-                rot_list = []
-                trans_list = []
-                for mat in img_metas[sample_idx]['lidar2img']:
-                    mat = torch.Tensor(mat).to(img_feats_view.device)
-                    rot_list.append(mat.to("cpu").inverse()[:3, :3].to("cuda"))
-                    trans_list.append(mat.to("cpu").inverse()[:3, 3].view(-1).to("cuda"))
-                rot_list = torch.stack(rot_list, dim=0)
-                trans_list = torch.stack(trans_list, dim=0)
-                rots.append(rot_list)
-                trans.append(trans_list)
-            rots = torch.stack(rots)
-            trans = torch.stack(trans)
-            lidar2img_rt = img_metas[sample_idx]['lidar2img']  #### extrinsic parameters for multi-view images
-            img_bev_feat, depth_dist = self.lift_splat_shot_vis(img_feats_view, rots, trans, lidar2img_rt=lidar2img_rt, img_metas=img_metas)
-            return self.seblock(img_bev_feat[0])
-        else:
-            raise ValueError("No SBNet modality found in img_metas")

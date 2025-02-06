@@ -270,6 +270,7 @@ class NuScenesDataset(Custom3DDataset):
             pts_filename=pts_filename,
             sweeps=info['sweeps'],
             timestamp=info['timestamp'] / 1e6,
+            sbnet_modality=info.get("sbnet_modality", None)
         )
 
         if self.noise_sensor_type == 'lidar':
@@ -332,7 +333,8 @@ class NuScenesDataset(Custom3DDataset):
                 dict(
                     img_filename=image_paths,
                     lidar2img=lidar2img_rts,
-                    caminfo=caminfos
+                    caminfo=caminfos,
+
                 ))
 
         if not self.test_mode:
