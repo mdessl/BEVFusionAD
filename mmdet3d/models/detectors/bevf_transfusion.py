@@ -135,6 +135,7 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
         Returns:
             dict: Losses of different branches.
         """
+        #points = [torch.zeros_like(p) for p in points]
         feature_dict = self.extract_feat(
             points, img=img, img_metas=img_metas)
         img_feats = feature_dict['img_feats']
@@ -200,17 +201,13 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
 
     def simple_test(self, points, img_metas, img=None, rescale=False):
         """Test function without augmentaiton."""
-        points = [torch.zeros_like(p) for p in points]
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
-        print("careful, lidar is zero!!")
+        #points = [torch.zeros_like(p) for p in points]
+        #print("careful, lidar is zero!!")
+
         feature_dict = self.extract_feat(
             points, img=img, img_metas=img_metas)
         img_feats = feature_dict['img_feats']
         pts_feats = feature_dict['pts_feats']
-
         bbox_list = [dict() for i in range(len(img_metas))]
         if pts_feats and self.with_pts_bbox:
             bbox_pts = self.simple_test_pts(
