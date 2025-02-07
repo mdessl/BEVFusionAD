@@ -233,11 +233,11 @@ class BEVF_TransFusion_SB(BEVF_TransFusion):
     
     def extract_feat(self, points, img, img_metas, modality, gt_bboxes_3d=None):
         """Extract features from images and points."""
-        if modality == "sbnet_lidar":
+        if modality == "lidar":
             pts_feats = self.extract_pts_feat(points, None, None) # img and img_metas are not used in that func
             return self.seblock(pts_feats[0])
 
-        elif modality == "sbnet_camera":
+        elif modality == "camera":
             img_feats = self.extract_img_feat(img, img_metas)
             BN, C, H, W = img_feats[0].shape
             batch_size = BN//self.num_views
@@ -274,7 +274,6 @@ class BEVF_TransFusion_SB(BEVF_TransFusion):
                       img_depth=None,
                       proposals=None,
                       gt_bboxes_ignore=None):
-        
         modality = img_metas[0]['sbnet_modality']
         if modality == "both":
             feature_dict = self.extract_feat(points, img=img, img_metas=img_metas, modality="camera")
