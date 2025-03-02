@@ -165,14 +165,14 @@ total_epochs = 6
 
 checkpoint_config = dict(interval=1)
 log_config = dict(
-    interval=50,
+    interval=1,
     hooks=[dict(type='TextLoggerHook'),
            dict(type='TensorboardLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = '/BEVFusionAD/data/transfusion_train/bevfusion_tf.pth'
+#load_from = '/BEVFusionAD/data/transfusion_train/bevfusion_tf.pth'
 load_lift_from = '/BEVFusionAD/data/transfusion_train/cam_tf.pth'
-
+load_from = None
 
 resume_from = None
 workflow = [('train', 1)]

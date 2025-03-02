@@ -55,6 +55,7 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
             pc_range=pc_range, final_dim=final_dim, downsample=downsample)
         if lc_fusion:
             if se:
+                print(lic)
                 self.seblock = SE_Block(lic)
             self.reduc_conv = ConvModule(
                 lic + imc,
@@ -127,14 +128,13 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
             rots = torch.stack(rots)
             trans = torch.stack(trans)
             lidar2img_rt = img_metas[sample_idx]['lidar2img']  #### extrinsic parameters for multi-view images
-            
+            #import pdb; pdb.set_trace()
             img_bev_feat, depth_dist = self.lift_splat_shot_vis(img_feats_view, rots, trans, lidar2img_rt=lidar2img_rt, img_metas=img_metas)
             # print(img_bev_feat.shape, pts_feats[-1].shape)
             if pts_feats is None:
                 pts_feats = [img_bev_feat] ####cam stream only
             else:
                 if self.lc_fusion:
-                    import pdb; pdb.set_trace()
                     if img_bev_feat.shape[2:] != pts_feats[0].shape[2:]:
                         img_bev_feat = F.interpolate(img_bev_feat, pts_feats[0].shape[2:], mode='bilinear', align_corners=True)
                     pts_feats = [self.reduc_conv(torch.cat([img_bev_feat, pts_feats[0]], dim=1))]

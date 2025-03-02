@@ -657,6 +657,7 @@ class TransFusionHead(nn.Module):
         self.sampling = False
 
         # a shared convolution
+        print(in_channels)
         self.shared_conv = build_conv_layer(
             dict(type='Conv2d'),
             in_channels,
@@ -807,8 +808,12 @@ class TransFusionHead(nn.Module):
         Returns:
             list[dict]: Output results for tasks.
         """
-        # print(img_inputs.shape)
+        
+        if inputs.ndim == 3:
+            inputs = inputs.unsqueeze(0)
         batch_size = inputs.shape[0]
+
+        
         lidar_feat = self.shared_conv(inputs)
         # print('before BEV', img_metas)
         #################################
