@@ -127,3 +127,16 @@ exps/
 *.obj
 *.ply
 ossutil_output
+# Ignored directories from your request
+cocoapi/
+multicorrupt/
+plots/
+
+# Other generated/temporary directories
+sbnet_img_only/
+
+# Image files
+*.png
+
+# Log/output files
+*.txt

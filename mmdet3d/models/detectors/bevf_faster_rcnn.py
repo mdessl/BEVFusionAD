@@ -30,7 +30,7 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
     def __init__(self, lss=False, lc_fusion=False, camera_stream=False,
                 camera_depth_range=[4.0, 45.0, 1.0], img_depth_loss_weight=1.0,  img_depth_loss_method='kld',
                 grid=0.6, num_views=6, se=False,
-                final_dim=(900, 1600), pc_range=[-50, -50, -5, 50, 50, 3], downsample=4, imc=256, lic=384, **kwargs):
+                final_dim=(900, 1600), pc_range=[-50, -50, -5, 50, 50, 3], downsample=4, imc=256, lic=384, adjust_channel=False, **kwargs):
         """
         Args:
             lss (bool): using default downsampled r18 BEV encoder in LSS.
@@ -50,12 +50,13 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
         self.camera_depth_range = camera_depth_range
         self.lift = camera_stream
         self.se = se
+
+
         if camera_stream:
             self.lift_splat_shot_vis = LiftSplatShoot(lss=lss, grid=grid, inputC=imc, camC=64, 
             pc_range=pc_range, final_dim=final_dim, downsample=downsample)
         if lc_fusion:
             if se:
-                print(lic)
                 self.seblock = SE_Block(lic)
             self.reduc_conv = ConvModule(
                 lic + imc,
@@ -66,7 +67,19 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
                 norm_cfg=dict(type='BN', eps=1e-3, momentum=0.01),
                 act_cfg=dict(type='ReLU'),
                 inplace=False)
-            
+
+        self.adjust_channel = adjust_channel
+        if self.adjust_channel:
+            self.reduc_conv = ConvModule(
+                lic*2,
+                lic,
+                3,
+                padding=1,
+                conv_cfg=None,
+                norm_cfg=dict(type='BN', eps=1e-3, momentum=0.01),
+                act_cfg=dict(type='ReLU'),
+                inplace=False)
+
         self.freeze_img = kwargs.get('freeze_img', False)
         self.init_weights(pretrained=kwargs.get('pretrained', None))
         self.freeze()
@@ -76,14 +89,25 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
             if self.with_img_backbone:
                 for param in self.img_backbone.parameters():
                     param.requires_grad = False
+            """
             if self.with_img_neck:
                 for param in self.img_neck.parameters():
                     param.requires_grad = False
             if self.lift:
                 for param in self.lift_splat_shot_vis.parameters():
                     param.requires_grad = False
-
-
+            """
+        """
+        print("=== Model layers frozen status ===")
+        for name, module in self.named_modules():
+            if len(list(module.parameters())) > 0:  # Only print modules with parameters
+                frozen = all(not p.requires_grad for p in module.parameters())
+                status = "frozen" if frozen else "trainable"
+                print(f"{name}: {status}")
+        print("=================================")
+        import sys
+        sys.exit()
+        """
     def extract_pts_feat(self, pts, img_feats, img_metas):
         """Extract features of points."""
         if not self.with_pts_backbone:
@@ -130,6 +154,8 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
             lidar2img_rt = img_metas[sample_idx]['lidar2img']  #### extrinsic parameters for multi-view images
             #import pdb; pdb.set_trace()
             img_bev_feat, depth_dist = self.lift_splat_shot_vis(img_feats_view, rots, trans, lidar2img_rt=lidar2img_rt, img_metas=img_metas)
+            if self.adjust_channel:
+                img_bev_feat = self.img_channel_adjust(img_bev_feat)
             # print(img_bev_feat.shape, pts_feats[-1].shape)
             if pts_feats is None:
                 pts_feats = [img_bev_feat] ####cam stream only
@@ -137,13 +163,18 @@ class BEVF_FasterRCNN(MVXFasterRCNN):
                 if self.lc_fusion:
                     if img_bev_feat.shape[2:] != pts_feats[0].shape[2:]:
                         img_bev_feat = F.interpolate(img_bev_feat, pts_feats[0].shape[2:], mode='bilinear', align_corners=True)
+                    import random
+                    if False: # true if img-only
+                        pts_feats = [torch.zeros_like(pts_feats[0])]
+                    if False: # true if lidar-only
+                        pts_feats = torch.zeros_like(img_bev_feat)
                     pts_feats = [self.reduc_conv(torch.cat([img_bev_feat, pts_feats[0]], dim=1))]
                     if self.se:
                         pts_feats = [self.seblock(pts_feats[0])]
         return dict(
             img_feats = img_feats,
             pts_feats = pts_feats,
-            depth_dist = depth_dist
+            depth_dist = img_bev_feat
         )
         # return (img_feats, pts_feats, depth_dist)
     

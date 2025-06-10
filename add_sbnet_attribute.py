@@ -3,7 +3,7 @@ import copy
 
 # Load the original data
 # Save mod
-with open("/BEVFusionAD/data/nuscenes/nuscenes_infos_train.pkl", 'rb') as f:
+with open("/BEVFusionAD/data/nuscenes/nuscenes_infos_train_bev.pkl", 'rb') as f:
     nuscenes_infos = pickle.load(f)
 
 # Get original data list
@@ -22,10 +22,15 @@ for entry in original_data:
     camera_entry = copy.deepcopy(entry)
     camera_entry['sbnet_modality'] = 'camera'
     new_data_list.append(camera_entry)
+    
+    # Add both modality entry
+    both_entry = copy.deepcopy(entry)
+    both_entry['sbnet_modality'] = 'both'
+    new_data_list.append(both_entry)
 
 # Replace the original infos with the new one
 nuscenes_infos["infos"] = new_data_list
 
 # Save modified file
-with open("/BEVFusionAD/data/nuscenes/nuscenes_infos_train.pkl", 'wb') as f:
+with open("/BEVFusionAD/data/nuscenes/nuscenes_infos_train_3mod.pkl", 'wb') as f:
     pickle.dump(nuscenes_infos, f)

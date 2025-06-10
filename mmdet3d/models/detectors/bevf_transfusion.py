@@ -13,7 +13,7 @@ from mmdet.core import multi_apply
 from mmdet.models import DETECTORS
 from .. import builder
 from .bevf_faster_rcnn import BEVF_FasterRCNN
-
+import os
 
 @DETECTORS.register_module()
 class BEVF_TransFusion(BEVF_FasterRCNN):
@@ -37,7 +37,25 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
                     param.requires_grad = False
             if self.with_img_neck:
                 for param in self.img_neck.parameters():
-                    param.requires_grad = False
+                    param.requires_grad = True
+            #if self.lift:
+            #    for param in self.lift_splat_shot_vis.parameters():
+            #        param.requires_grad = True
+        # Print all layers and their frozen status
+        """
+        print("=== Model layers frozen status ===")
+        for name, module in self.named_modules():
+            if len(list(module.parameters())) > 0:  # Only print modules with parameters
+                frozen = all(not p.requires_grad for p in module.parameters())
+                status = "frozen" if frozen else "trainable"
+                print(f"{name}: {status}")
+        print("=================================")
+        import sys
+        sys.exit()
+        """
+            #if self.with_img_neck:
+            #    for param in self.img_neck.parameters():
+            #        param.requires_grad = False
 
     def extract_img_feat(self, img, img_metas):
         """Extract features of images."""
@@ -52,7 +70,7 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
             elif img.dim() == 5 and img.size(0) > 1:
                 B, N, C, H, W = img.size()
                 img = img.view(B * N, C, H, W)
-            img_feats = self.img_backbone(img.float())
+            img_feats = self.img_backbone(img) #img.float()
         else:
             return None
         if self.with_img_neck:
@@ -137,7 +155,6 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
         Returns:
             dict: Losses of different branches.
         """
-        #points = [torch.zeros_like(p) for p in points]
         feature_dict = self.extract_feat(
             points, img=img, img_metas=img_metas)
         img_feats = feature_dict['img_feats']
@@ -192,7 +209,7 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
         loss_inputs = [gt_bboxes_3d, gt_labels_3d, outs]
         losses = self.pts_bbox_head.loss(*loss_inputs)
         return losses
-
+   
     def simple_test_pts(self, x, x_img, img_metas, rescale=False):
         """Test function of point cloud branch."""
         outs = self.pts_bbox_head(x, x_img, img_metas)
@@ -208,22 +225,32 @@ class BEVF_TransFusion(BEVF_FasterRCNN):
         """Test function without augmentaiton."""
         #points = [torch.zeros_like(p) for p in points]
         #print("careful, lidar is zero!!")
-
-        feature_dict = self.extract_feat(
-            points, img=img, img_metas=img_metas)
-        img_feats = feature_dict['img_feats']
-        pts_feats = feature_dict['pts_feats']
-        bbox_list = [dict() for i in range(len(img_metas))]
-        if pts_feats and self.with_pts_bbox:
-            bbox_pts = self.simple_test_pts(
-                pts_feats, img_feats, img_metas, rescale=rescale)
-            for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
-                result_dict['pts_bbox'] = pts_bbox
-        if img_feats and self.with_img_bbox: # this is not used because self.with_img_bbox is False
-            bbox_img = self.simple_test_img(
-                img_feats, img_metas, rescale=rescale)
-            for result_dict, img_bbox in zip(bbox_list, bbox_img):
-                result_dict['img_bbox'] = img_bbox
+        #import pdb; pdb.set_trace()
+        if False:
+            img = img.data[0]
+            img_metas = img_metas.data[0]
+            points = points.data[0]
+            if img is not None:
+                img = img.to('cuda')
+            if points is not None:
+                points = [p.to('cuda') for p in points]
+        
+        with torch.no_grad():
+            feature_dict = self.extract_feat(
+                points, img=img, img_metas=img_metas)
+            img_feats = feature_dict['img_feats']
+            pts_feats = feature_dict['pts_feats']
+            bbox_list = [dict() for i in range(len(img_metas))]
+            if pts_feats and self.with_pts_bbox:
+                bbox_pts = self.simple_test_pts(
+                    pts_feats, img_feats, img_metas, rescale=rescale)
+                for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
+                    result_dict['pts_bbox'] = pts_bbox
+            if img_feats and self.with_img_bbox: # this is not used because self.with_img_bbox is False
+                bbox_img = self.simple_test_img(
+                    img_feats, img_metas, rescale=rescale)
+                for result_dict, img_bbox in zip(bbox_list, bbox_img):
+                    result_dict['img_bbox'] = img_bbox
 
         return bbox_list
 
@@ -248,20 +275,54 @@ class SE_Block_LIDAR(nn.Module):
             x = self.conv_out(x)
         return x
 
+class SE_Block_ADJ(nn.Module):
+    def __init__(self, c_in=256, c_out=512):
+        super().__init__()
+        self.conv_out = nn.Conv2d(c_in, c_out, kernel_size=1, stride=1)
+        self.att = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(c_out, c_out, kernel_size=1, stride=1),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        x = self.conv_out(x)
+        return x * self.att(x)
+
+class SE_Block(nn.Module):
+    def __init__(self, c):
+        super().__init__()
+        self.att = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(c, c, kernel_size=1, stride=1),
+            nn.Sigmoid()
+        )
+    def forward(self, x):
+        return x * self.att(x)
+
 @DETECTORS.register_module()
 class BEVF_TransFusion_SB(BEVF_TransFusion):
     """Multi-modality BEVFusion using Faster R-CNN."""
 
     def __init__(self, **kwargs):
         super(BEVF_TransFusion_SB, self).__init__(**kwargs)
-        self.seblock_lidar = SE_Block_LIDAR(512, 256)  # Now handles downscaling from 512 to 256
-        # Add a layer to adjust channels from 256 to 512 for image features
+        if not os.environ.get('IMG_WEIGHT'):
+            self.img_weight = 0.5
+            self.lidar_weight = 0.5
+        else:
+            self.img_weight = float(os.environ.get('IMG_WEIGHT'))
+            self.lidar_weight = float(os.environ.get('LIDAR_WEIGHT'))
+
+            # Add a layer to adjust channels from 256 to 512 for image features
         self.img_channel_adjust = nn.Conv2d(256, 512, kernel_size=1, stride=1)
+
+        self.self_attn_lidar = SE_Block(512)
+        self.self_attn_img = SE_Block(512)
+        #self.self_attn_both = SE_Block(512)
     
     def extract_feat_lidar(self, points, gt_bboxes_3d=None):
         """Extract features from point cloud."""
         pts_feats = self.extract_pts_feat(points, None, None)
-        return pts_feats[0]
+        return self.self_attn_lidar(pts_feats[0])
         
     def extract_feat_img(self, img, img_metas, gt_bboxes_3d=None):
         """Extract features from images."""
@@ -289,7 +350,7 @@ class BEVF_TransFusion_SB(BEVF_TransFusion):
         lidar2img_rt = img_metas[sample_idx]['lidar2img']  #### extrinsic parameters for multi-view images
         img_bev_feat, _ = self.lift_splat_shot_vis(img_feats_view, rots, trans, lidar2img_rt=lidar2img_rt, img_metas=img_metas)
         img_bev_feat = self.img_channel_adjust(img_bev_feat)
-
+        img_bev_feat = self.self_attn_img(img_bev_feat)
         # Apply channel adjustment to convert from 256 to 512 channels
         
         return img_feats, img_bev_feat
@@ -306,26 +367,36 @@ class BEVF_TransFusion_SB(BEVF_TransFusion):
                       proposals=None,
                       gt_bboxes_ignore=None):
         modality = img_metas[0]['sbnet_modality']
-        #modality = "both"
+        print(modality)
+        # Randomly choose between "both", "lidar", or "camera"
+        #import random
+        # Camera should be 2x as often as the other two
+        #modality_choices = ["both", "lidar", "camera", "camera"]
+        #modality = random.choice(modality_choices)
+        #modality = "camera"
+        #modality="camera"
         if modality == "both":
-            img_feat_2d, pts_feats_img = self.extract_feat_img(img, img_metas)
-            pts_feats_lidar = self.extract_feat_lidar(points)
-            
-            # Check if one of the feature maps has half the channels and handle accordingly
-            if pts_feats_img.shape[1] == pts_feats_lidar.shape[1] // 2:
-                pts_feats_img = torch.cat([pts_feats_img, pts_feats_img], dim=1)
-            elif pts_feats_lidar.shape[1] == pts_feats_img.shape[1] // 2:
-                pts_feats_lidar = torch.cat([pts_feats_lidar, pts_feats_lidar], dim=1)
-                
-            # Make sure the operation maintains gradient flow
-            pts_feats = [(pts_feats_img + pts_feats_lidar) / 2]
+
+            fusion_type_avg = True
+            feature_dict = self.extract_feat(
+                points, img=img, img_metas=img_metas)
+            img_feats = feature_dict['img_feats']
+            pts_feats = feature_dict['pts_feats'] 
+
+            if fusion_type_avg:
+                img_feats_bev = feature_dict['depth_dist']
+                img_feats_bev = self.img_channel_adjust(img_feats_bev)
+                img_feats_bev = self.self_attn_img(img_feats_bev) 
+                pts_feats = (img_feats_bev + pts_feats[0]) / 2
+
         elif modality == "lidar": 
             pts_feats_lidar = self.extract_feat_lidar(points, gt_bboxes_3d)
             # Wrap in list for forward_pts_train
             pts_feats = [pts_feats_lidar]
-            img_feat_2d = None
+            img_feats = None
         elif modality == "camera":
-            img_feat_2d, pts_feats_img = self.extract_feat_img(img, img_metas, gt_bboxes_3d)
+            img_feats, pts_feats_img = self.extract_feat_img(img, img_metas, gt_bboxes_3d)
+            #print("pts_feats_img", pts_feats_img.shape)
             # Wrap in list for forward_pts_train
             pts_feats = [pts_feats_img]
         else:
@@ -339,7 +410,7 @@ class BEVF_TransFusion_SB(BEVF_TransFusion):
         
         if modality == "camera" or modality == "both":
             losses_img = self.forward_img_train(
-                img_feat_2d,
+                img_feats,
                 img_metas=img_metas,
                 gt_bboxes=gt_bboxes,
                 gt_labels=gt_labels,
@@ -347,15 +418,10 @@ class BEVF_TransFusion_SB(BEVF_TransFusion):
                 proposals=proposals)
             losses.update(losses_img)
         
-        # Verify that losses contain values that require gradients
-        if self.training:
-            for k, v in losses.items():
-                if isinstance(v, torch.Tensor) and not v.requires_grad:
-                    losses[k] = v.detach().clone().requires_grad_(True)
-        
+
         return losses
 
-    def simple_test(self, points, img_metas, img=None, rescale=False):
+    def simple_test_old(self, points, img_metas, img=None, rescale=False):
         """sbnet test function without augmentaiton.
         currently only handles both modality scenario
         """
@@ -383,3 +449,51 @@ class BEVF_TransFusion_SB(BEVF_TransFusion):
                 result_dict['pts_bbox'] = pts_bbox
 
         return bbox_list
+
+    def simple_test(self, points, img_metas, img=None, rescale=False):
+        """Test function without augmentation.
+        
+        Handles different modalities (camera, lidar, both) for inference,
+        currently focusing on camera modality.
+        """
+        # For now, we'll just use camera modality
+        modality = "camera"
+        #sbnet modality switch
+        print(f"Running inference with modality: {modality}")
+        
+        if modality == "camera":
+            img_feats, pts_feats_img = self.extract_feat_img(img, img_metas)
+            # Wrap in list for simple_test_pts
+            pts_feats = [pts_feats_img]
+        elif modality == "lidar":
+            pts_feats_lidar = self.extract_feat_lidar(points)
+            # Wrap in list for simple_test_pts
+            pts_feats = [pts_feats_lidar]
+        elif modality == "both":
+
+            fusion_type_avg = True
+            feature_dict = self.extract_feat(
+                points, img=img, img_metas=img_metas)
+            img_feats = feature_dict['img_feats']
+            pts_feats = feature_dict['pts_feats'] 
+
+            if fusion_type_avg:
+                img_feats_bev = feature_dict['depth_dist']
+                img_feats_bev = self.img_channel_adjust(img_feats_bev)
+                img_feats_bev = self.self_attn_img(img_feats_bev) 
+                pts_feats = (img_feats_bev * self.img_weight + pts_feats[0] * self.lidar_weight) #/ 2
+        else:
+            raise ValueError(f"Invalid modality: {modality}")
+        
+        bbox_list = [dict() for i in range(len(img_metas))]
+        
+        if True:#pts_feats and self.with_pts_bbox:
+            
+            bbox_pts = self.simple_test_pts(
+                pts_feats, None, img_metas, rescale=rescale)
+            for result_dict, pts_bbox in zip(bbox_list, bbox_pts):
+                result_dict['pts_bbox'] = pts_bbox
+        
+        return bbox_list
+
+

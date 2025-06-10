@@ -23,7 +23,7 @@ input_modality = dict(
 num_views = 6
 model = dict(
     type='BEVF_TransFusion',
-    freeze_img=True,
+    freeze_img=False,
     se=True,
     camera_stream=True, 
     grid=0.6, 
@@ -154,7 +154,7 @@ model = dict(
             voxel_size=voxel_size[:2],
             nms_type=None,
         )))
-optimizer = dict(type='AdamW', lr=0.0001, betas=(0.9, 0.999), weight_decay=0.05,
+optimizer = dict(type='AdamW', lr=0.001, betas=(0.9, 0.999), weight_decay=0.05,
                  paramwise_cfg=dict(custom_keys={'absolute_pos_embed': dict(decay_mult=0.),
                                                  'relative_position_bias_table': dict(decay_mult=0.),
                                                  'norm': dict(decay_mult=0.)}))
@@ -163,7 +163,11 @@ lr_config = dict(
     step=[4, 5])
 total_epochs = 6
 
-checkpoint_config = dict(interval=1)
+checkpoint_config = dict(
+    interval=4000,
+    by_epoch=False,
+    max_keep_ckpts=10)  # Save every 1000 iterations, keep only the latest 3 checkpoints
+
 log_config = dict(
     interval=1,
     hooks=[dict(type='TextLoggerHook'),
@@ -173,20 +177,15 @@ log_level = 'INFO'
 load_from = '/BEVFusionAD/data/transfusion_train/bevfusion_tf.pth'
 load_lift_from = '/BEVFusionAD/data/transfusion_train/cam_tf.pth'
 #load_from = '/BEVFusionAD/data/transfusion_train/lidar_tf.pth'
+adjust_channel = True
 
 resume_from = None
 workflow = [('train', 1)]
 gpu_ids = range(0, 8)
-freeze_lidar_components = False
+freeze_lidar_components = True
 find_unused_parameters = True
 no_freeze_head = True
 
 data = dict(
-    samples_per_gpu=2,
-    workers_per_gpu=4,)
-
-checkpoint_config = dict(
-    interval=500,
-    by_epoch=False,
-    max_keep_ckpts=10)  # Save every 1000 iterations, keep only the latest 3 checkpoints
-
+    samples_per_gpu=1,
+    workers_per_gpu=6,)

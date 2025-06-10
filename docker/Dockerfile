@@ -23,7 +23,6 @@ RUN pip install Cython
 RUN pip install mmcv-full==1.3.13 -f https://download.openmmlab.com/mmcv/dist/cu101/torch1.6.0/index.html
 RUN pip install mmdet==2.17.0
 RUN pip install mmsegmentation==0.18.0
-
 # Install MMDetection3D
 RUN conda clean --all
 ADD . /workspace

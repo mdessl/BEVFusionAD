@@ -9,7 +9,8 @@ from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
 
-from mmdet3d.apis import single_gpu_test
+from copy import deepcopy
+from mmdet3d.core import box3d_multiclass_nms, xywhr2xyxyr, bbox3d2result
 from mmdet3d.datasets import build_dataloader, build_dataset
 from mmdet3d.models import build_detector
 from mmdet.apis import multi_gpu_test, set_random_seed
@@ -81,7 +82,7 @@ def parse_args():
     parser.add_argument(
         '--launcher',
         choices=['none', 'pytorch', 'slurm', 'mpi'],
-        default='pytorch',
+        default='none',
         help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
@@ -96,6 +97,61 @@ def parse_args():
         warnings.warn('--options is deprecated in favor of --eval-options')
         args.eval_options = args.options
     return args
+
+
+def single_gpu_test_post_hoc(model, data_loader, show=False, out_dir=None):
+    """Test with post-hoc fusion by running the model twice per sample."""
+    model.eval()
+    results = []
+    dataset = data_loader.dataset
+    prog_bar = mmcv.ProgressBar(len(dataset))
+
+    if hasattr(model, 'module'):
+        test_cfg = model.module.test_cfg
+    else:
+        test_cfg = model.test_cfg
+    nms_cfg = test_cfg.get('pts', test_cfg)
+    num_classes = len(dataset.CLASSES)
+    box_type = dataset.box_type_3d
+
+    for data in data_loader:
+        # LiDAR-only prediction
+        lidar_inputs = dict(points=data['points'], img_metas=data['img_metas'], img=None)
+        with torch.no_grad():
+            lidar_results = model(return_loss=False, rescale=True, **lidar_inputs)
+
+        # Camera-only prediction
+        empty_points = [torch.empty((0, p.size(-1)), dtype=p.dtype, device=p.device) for p in data['points']]
+        cam_inputs = dict(points=empty_points, img_metas=data['img_metas'], img=data['img'])
+        with torch.no_grad():
+            cam_results = model(return_loss=False, rescale=True, **cam_inputs)
+
+        # Fuse predictions sample by sample
+        for l_res, c_res in zip(lidar_results, cam_results):
+            l_bbox = l_res['pts_bbox']
+            c_bbox = c_res['pts_bbox']
+
+            boxes = box_type.cat([l_bbox['boxes_3d'], c_bbox['boxes_3d']])
+            scores = torch.cat([l_bbox['scores_3d'], c_bbox['scores_3d']])
+            labels = torch.cat([l_bbox['labels_3d'], c_bbox['labels_3d']])
+
+            if boxes.tensor.numel() == 0:
+                fused = dict(pts_bbox=bbox3d2result(boxes, scores, labels))
+            else:
+                mlvl_bboxes = boxes.tensor
+                mlvl_bboxes_for_nms = xywhr2xyxyr(boxes.bev)
+                mlvl_scores = scores.new_zeros((scores.size(0), num_classes + 1))
+                mlvl_scores[torch.arange(scores.size(0)), labels] = scores
+                bboxes, nms_scores, nms_labels, _ = box3d_multiclass_nms(
+                    mlvl_bboxes, mlvl_bboxes_for_nms, mlvl_scores,
+                    nms_cfg.get('score_thr', 0), nms_cfg.get('max_num', 500), nms_cfg)
+                bboxes = box_type(bboxes, box_dim=boxes.tensor.size(1))
+                fused = dict(pts_bbox=bbox3d2result(bboxes, nms_scores, nms_labels))
+
+            results.append(fused)
+            prog_bar.update()
+
+    return results
 
 
 def main():
@@ -149,7 +205,6 @@ def main():
     else:
         distributed = False
         #init_dist(args.launcher, **cfg.dist_params)
-        #init_dist(args.launcher, **cfg.dist_params)
 
     # set random seeds
     if args.seed is not None:
@@ -170,7 +225,7 @@ def main():
     fp16_cfg = cfg.get('fp16', None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
-    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cuda')
+    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
     if args.fuse_conv_bn:
         model = fuse_conv_bn(model)
     # old versions did not save class info in checkpoints, this walkaround is
@@ -182,7 +237,7 @@ def main():
 
     if not distributed:
         model = MMDataParallel(model, device_ids=[0])
-        outputs = single_gpu_test(model, data_loader, args.show, args.show_dir)
+        outputs = single_gpu_test_post_hoc(model, data_loader, args.show, args.show_dir)
     else:
         model = MMDistributedDataParallel(
             model.cuda(),

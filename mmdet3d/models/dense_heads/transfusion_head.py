@@ -812,7 +812,13 @@ class TransFusionHead(nn.Module):
         if inputs.ndim == 3:
             inputs = inputs.unsqueeze(0)
         batch_size = inputs.shape[0]
+        # If input channels is twice the input feature channels, duplicate and concatenate
+        if self.in_channels // 2 == inputs.shape[1]:
+            inputs = torch.cat([inputs, inputs], dim=1)
 
+        # Make sure inputs requires grad
+        if not inputs.requires_grad:
+            inputs = inputs.detach().requires_grad_(True)
         
         lidar_feat = self.shared_conv(inputs)
         # print('before BEV', img_metas)

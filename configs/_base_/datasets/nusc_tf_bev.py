@@ -3,10 +3,10 @@ class_names = [
     'car', 'truck', 'construction_vehicle', 'bus', 'trailer', 'barrier',
     'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone'
 ]
-evaluation = dict(interval=20)
+evaluation = dict(interval=36)
 
 dataset_type = 'NuScenesDataset'
-data_root = 'data/mini/'
+data_root = 'data/nuscenes/'
 input_modality = dict(
     use_lidar=True,
     use_camera=True,
@@ -70,13 +70,13 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=4,
     workers_per_gpu=6,
     train=dict(
             type=dataset_type,
             data_root=data_root,
             num_views=num_views,
-            ann_file=data_root + '/nuscenes_infos_train.pkl',
+            ann_file=data_root + '/nuscenes_infos_train_bev.pkl',
             load_interval=1,
             pipeline=train_pipeline,
             classes=class_names,
@@ -96,12 +96,15 @@ data = dict(
         box_type_3d='LiDAR'),
     test=dict(
         type=dataset_type,
-        data_root=data_root,
+        data_root='data/nuscenes/',
         num_views=num_views,
-        ann_file=data_root + '/nuscenes_infos_val.pkl',
+        ann_file='data/nuscenes/' + '/nuscenes_infos_val_cleaned.pkl',
+        # ann_file=data_root + '/nuscenes_infos_test.pkl',
         load_interval=1,
         pipeline=test_pipeline,
         classes=class_names,
         modality=input_modality,
         test_mode=True,
         box_type_3d='LiDAR'))
+
+

@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/nusc_tf_bev.py',
+    '../_base_/datasets/nusc_tf.py',
     '../_base_/schedules/schedule_1x.py',
 
 ]
@@ -22,7 +22,7 @@ input_modality = dict(
     use_external=False)
 num_views = 6
 model = dict(
-    type='BEVF_TransFusion',
+    type='BEVF_TransFusion_SB',
     freeze_img=True,
     se=True,
     camera_stream=True, 
@@ -31,7 +31,7 @@ model = dict(
     final_dim=final_dim,
     downsample=downsample, 
     imc=imc, 
-    lic=256 * 2,
+    lic=256*2,
     lc_fusion=True,
     pc_range = point_cloud_range,
     img_backbone=dict(
@@ -101,7 +101,7 @@ model = dict(
         out_size_factor_img=4,
         num_proposals=200,
         auxiliary=True,
-        in_channels=256 * 2,
+        in_channels=256*2,
         hidden_channel=128,
         num_classes=len(class_names),
         num_decoder_layers=1,
@@ -158,20 +158,46 @@ optimizer = dict(type='AdamW', lr=0.0001, betas=(0.9, 0.999), weight_decay=0.05,
                  paramwise_cfg=dict(custom_keys={'absolute_pos_embed': dict(decay_mult=0.),
                                                  'relative_position_bias_table': dict(decay_mult=0.),
                                                  'norm': dict(decay_mult=0.)}))
-optimizer_config = dict(grad_clip=dict(max_norm=10, norm_type=2))                                                
+#optimizer_config = dict(grad_clip=dict(max_norm=10, norm_type=2))                                                
+optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
+
 lr_config = dict(
     step=[4, 5])
+lr_config = dict(
+    _delete_=True,
+    policy='cyclic',
+    target_ratio=(10, 0.0001),
+    cyclic_times=1,
+    step_ratio_up=0.4)
+momentum_config = dict(
+    _delete_=True,
+    policy='cyclic',
+    target_ratio=(0.8947368421052632, 1),
+    cyclic_times=1,
+    step_ratio_up=0.4)
+
 total_epochs = 6
 
-checkpoint_config = dict(interval=1)
+checkpoint_config = dict(
+    interval=20,
+    by_epoch=False,
+    max_keep_ckpts=10,
+    filename_tmpl='iter_{}.pth') 
+    
 log_config = dict(
     interval=1,
     hooks=[dict(type='TextLoggerHook'),
            dict(type='TensorboardLoggerHook')])
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-load_from = '/BEVFusionAD/data/transfusion_train/bevfusion_tf.pth'
-load_lift_from = '/BEVFusionAD/data/transfusion_train/cam_tf.pth'
+#load_from = '/BEVFusionAD/data/transfusion_train/bevfusion_tf.pth'
+load_from = '/BEVFusionAD/work_dirs/3103_sbnet_conv/15k.pth'
+#load_from = '/BEVFusionAD/work_dirs/3003_sbnet_img-only/iter_1.pth'
+#load_from = '/BEVFusionAD/work_dirs/1703_sbnet2/iter_1.pth' #500x2
+#load_from = '/BEVFusionAD/data/transfusion_train/cam_tf.pth'
+
+#load_from = '/BEVFusionAD/work_dirs/bevf_tf_4x8_6e_nusc_adj_channel/epoch_1.pth'
+load_lift_from ='/BEVFusionAD/data/transfusion_train/cam_tf.pth'
 #load_from = '/BEVFusionAD/data/transfusion_train/lidar_tf.pth'
 
 resume_from = None
@@ -182,11 +208,5 @@ find_unused_parameters = True
 no_freeze_head = True
 
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=1,
     workers_per_gpu=4,)
-
-checkpoint_config = dict(
-    interval=500,
-    by_epoch=False,
-    max_keep_ckpts=10)  # Save every 1000 iterations, keep only the latest 3 checkpoints
-
